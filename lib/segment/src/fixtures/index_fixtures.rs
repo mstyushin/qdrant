@@ -54,7 +54,7 @@ where
             metric: &self.metric,
             vectors: &self.vectors,
             deleted: &self.deleted,
-            num_comparisons: AtomicU64::new(0)
+            num_comparisons: AtomicU64::new(0),
         }
     }
 }

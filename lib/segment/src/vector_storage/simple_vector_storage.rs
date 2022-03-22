@@ -17,8 +17,8 @@ use crate::spaces::simple::{CosineMetric, DotProductMetric, EuclidMetric};
 use atomic_refcell::AtomicRefCell;
 use bit_vec::BitVec;
 use std::mem::size_of;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 const DB_CACHE_SIZE: usize = 10 * 1024 * 1024; // 10 mb
 
@@ -263,7 +263,7 @@ where
             metric: &self.metric,
             vectors: &self.vectors,
             deleted: &self.deleted,
-            num_comparisons: AtomicU64::new(0)
+            num_comparisons: AtomicU64::new(0),
         })
     }
 
@@ -273,7 +273,7 @@ where
             metric: &self.metric,
             vectors: &self.vectors,
             deleted: &self.deleted,
-            num_comparisons: AtomicU64::new(0)
+            num_comparisons: AtomicU64::new(0),
         })
     }
 
