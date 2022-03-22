@@ -18,6 +18,7 @@ use atomic_refcell::AtomicRefCell;
 use bit_vec::BitVec;
 use std::mem::size_of;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const DB_CACHE_SIZE: usize = 10 * 1024 * 1024; // 10 mb
 
@@ -42,6 +43,7 @@ pub struct SimpleRawScorer<'a, TMetric: Metric> {
     pub metric: &'a TMetric,
     pub vectors: &'a ChunkedVectors,
     pub deleted: &'a BitVec,
+    pub num_comparisons: AtomicU64,
 }
 
 impl<TMetric> RawScorer for SimpleRawScorer<'_, TMetric>
@@ -55,6 +57,7 @@ where
                 continue;
             }
             let other_vector = self.vectors.get(point_id);
+            self.num_comparisons.fetch_add(1, Ordering::SeqCst);
             scores[size] = ScoredPointOffset {
                 idx: point_id,
                 score: self.metric.similarity(&self.query, other_vector),
@@ -74,12 +77,14 @@ where
 
     fn score_point(&self, point: PointOffsetType) -> ScoreType {
         let other_vector = self.vectors.get(point);
+        self.num_comparisons.fetch_add(1, Ordering::SeqCst);
         self.metric.similarity(&self.query, other_vector)
     }
 
     fn score_internal(&self, point_a: PointOffsetType, point_b: PointOffsetType) -> ScoreType {
         let vector_a = self.vectors.get(point_a);
         let vector_b = self.vectors.get(point_b);
+        self.num_comparisons.fetch_add(1, Ordering::SeqCst);
         self.metric.similarity(vector_a, vector_b)
     }
 }
@@ -258,6 +263,7 @@ where
             metric: &self.metric,
             vectors: &self.vectors,
             deleted: &self.deleted,
+            num_comparisons: AtomicU64::new(0)
         })
     }
 
@@ -267,6 +273,7 @@ where
             metric: &self.metric,
             vectors: &self.vectors,
             deleted: &self.deleted,
+            num_comparisons: AtomicU64::new(0)
         })
     }
 

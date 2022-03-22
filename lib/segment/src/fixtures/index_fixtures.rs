@@ -1,4 +1,6 @@
-use crate::payload_storage::FilterContext;
+use crate::payload_storage::{ConditionChecker, FilterContext};
+
+use std::sync::atomic::AtomicU64;
 use crate::spaces::metric::Metric;
 use crate::types::{PointOffsetType, VectorElementType};
 use crate::vector_storage::chunked_vectors::ChunkedVectors;
@@ -52,6 +54,7 @@ where
             metric: &self.metric,
             vectors: &self.vectors,
             deleted: &self.deleted,
+            num_comparisons: AtomicU64::new(0)
         }
     }
 }
