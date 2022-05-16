@@ -11,7 +11,9 @@ use std::{
 
 use crate::operations::types::PointRequest;
 use crate::operations::OperationToShard;
+use crate::shard::remote_shard::RemoteShard;
 use crate::shard::ShardOperation;
+use api::grpc::transport_channel_pool::TransportChannelPool;
 use collection_manager::collection_managers::CollectionSearcher;
 use config::CollectionConfig;
 use futures::future::{join_all, try_join_all};
@@ -39,6 +41,7 @@ use segment::{
 use serde::{Deserialize, Serialize};
 use shard::{local_shard::LocalShard, Shard, ShardId};
 use tokio::runtime::Handle;
+use tonic::transport::Uri;
 
 pub mod collection_manager;
 mod common;
@@ -117,35 +120,50 @@ impl Collection {
         id: CollectionId,
         path: &Path,
         config: &CollectionConfig,
+        local_shard_ids: Vec<ShardId>,
+        peer_id: PeerId,
+        ip_to_address: Arc<std::sync::RwLock<HashMap<u64, Uri>>>,
+        channel_pool: Arc<TransportChannelPool>,
     ) -> Result<Self, CollectionError> {
         config.save(path)?;
         let mut ring = HashRing::new();
         let mut shards: HashMap<ShardId, Shard> = HashMap::new();
         for shard_id in 0..config.params.shard_number.get() {
-            let shard_path = shard_path(path, shard_id);
-            let shard = tokio::fs::create_dir_all(&shard_path).await.map_err(|err| {
-                CollectionError::ServiceError {
-                    error: format!("Can't create shard {shard_id} directory. Error: {}", err),
-                }
-            });
+            if local_shard_ids.contains(&shard_id) {
+                let shard_path = shard_path(path, shard_id);
+                let shard = tokio::fs::create_dir_all(&shard_path).await.map_err(|err| {
+                    CollectionError::ServiceError {
+                        error: format!("Can't create shard {shard_id} directory. Error: {}", err),
+                    }
+                });
 
-            let shard = match shard {
-                Ok(_) => LocalShard::build(shard_id, id.clone(), &shard_path, config).await,
-                Err(err) => Err(err),
-            };
+                let shard = match shard {
+                    Ok(_) => LocalShard::build(shard_id, id.clone(), &shard_path, config).await,
+                    Err(err) => Err(err),
+                };
 
-            let shard = match shard {
-                Ok(shard) => shard,
-                Err(err) => {
-                    let futures: FuturesUnordered<_> = shards
-                        .iter_mut()
-                        .map(|(_, shard)| shard.before_drop())
-                        .collect();
-                    futures.collect::<Vec<()>>().await;
-                    return Err(err);
-                }
-            };
-            shards.insert(shard_id, Shard::Local(shard));
+                let shard = match shard {
+                    Ok(shard) => shard,
+                    Err(err) => {
+                        let futures: FuturesUnordered<_> = shards
+                            .iter_mut()
+                            .map(|(_, shard)| shard.before_drop())
+                            .collect();
+                        futures.collect::<Vec<()>>().await;
+                        return Err(err);
+                    }
+                };
+                shards.insert(shard_id, Shard::Local(shard));
+            } else {
+                let shard = RemoteShard::build(
+                    shard_id,
+                    id.clone(),
+                    peer_id,
+                    ip_to_address.clone(),
+                    channel_pool.clone(),
+                );
+                shards.insert(shard_id, Shard::Remote(shard));
+            }
             ring.add(shard_id);
         }
         Ok(Self {
@@ -172,6 +190,7 @@ impl Collection {
 
         for shard_id in 0..config.params.shard_number.get() {
             let shard_path = shard_path(path, shard_id);
+            // TODO load remote
             shards.insert(
                 shard_id,
                 Shard::Local(LocalShard::load(shard_id, id.clone(), &shard_path, &config).await),

@@ -20,6 +20,7 @@ use collection::operations::CollectionUpdateOperations;
 use collection::Collection;
 use segment::types::ScoredPoint;
 
+use crate::content_manager::shard_distribution::ShardDistributionProposal;
 use crate::content_manager::{
     alias_mapping::AliasPersistence,
     collection_meta_ops::{
@@ -76,7 +77,7 @@ pub struct TableOfContent {
     propose_sender: Option<std::sync::Mutex<std::sync::mpsc::Sender<Vec<u8>>>>,
     on_consensus_op_apply:
         std::sync::Mutex<HashMap<ConsensusOperations, oneshot::Sender<Result<bool, StorageError>>>>,
-    transport_channel_pool: TransportChannelPool,
+    transport_channel_pool: Arc<TransportChannelPool>,
     this_peer_id: u64,
 }
 
@@ -134,10 +135,10 @@ impl TableOfContent {
         .expect("Cannot initialize Raft persistent storage");
 
         let (propose_sender, transport_channel_pool) = match consensus_enabled {
-            None => (None, TransportChannelPool::default()), // use a default empty pool as consensus is disabled
+            None => (None, Arc::new(TransportChannelPool::default())), // use a default empty pool as consensus is disabled
             Some(ce) => (
                 Some(std::sync::Mutex::new(ce.propose_sender)),
-                ce.transport_channel_pool,
+                Arc::new(ce.transport_channel_pool),
             ),
         };
 
@@ -209,6 +210,7 @@ impl TableOfContent {
         &self,
         collection_name: &str,
         operation: CreateCollection,
+        local_shard_ids: Vec<ShardId>,
     ) -> Result<bool, StorageError> {
         let CreateCollection {
             vector_size,
@@ -249,15 +251,20 @@ impl TableOfContent {
             Some(diff) => diff.update(&self.storage_config.hnsw_index)?,
         };
 
+        let collection_config = CollectionConfig {
+            wal_config,
+            params: collection_params,
+            optimizer_config: optimizers_config,
+            hnsw_config,
+        };
         let collection = Collection::new(
             collection_name.to_string(),
             Path::new(&collection_path),
-            &CollectionConfig {
-                wal_config,
-                params: collection_params,
-                optimizer_config: optimizers_config,
-                hnsw_config,
-            },
+            &collection_config,
+            local_shard_ids,
+            self.this_peer_id,
+            self.raft_state.lock().unwrap().peer_address_by_id, //TODO
+            self.transport_channel_pool.clone(),
         )
         .await?;
 
@@ -356,14 +363,36 @@ impl TableOfContent {
         operation: CollectionMetaOperations,
         wait_timeout: Option<Duration>,
     ) -> Result<bool, StorageError> {
+        // if distributed deployment is enabled
         if self.propose_sender.is_some() {
+            let shard_distribution = match &operation {
+                CollectionMetaOperations::CreateCollection(op) => {
+                    let shard_number = op.create_collection.shard_number;
+                    // \o/
+                    let known_peers: Vec<_> = self
+                        .raft_state
+                        .lock()
+                        .unwrap()
+                        .peer_address_by_id
+                        .read()
+                        .unwrap()
+                        .0
+                        .keys()
+                        .cloned()
+                        .collect();
+                    let shard_distribution =
+                        ShardDistributionProposal::build(shard_number, &known_peers);
+                    Some(shard_distribution)
+                }
+                _ => None,
+            };
             self.propose_consensus_op(
-                ConsensusOperations::CollectionMeta(Box::new(operation)),
+                ConsensusOperations::CollectionMeta(Box::new(operation), shard_distribution),
                 wait_timeout,
             )
             .await
         } else {
-            self.perform_collection_meta_op(operation).await
+            self.perform_collection_meta_op(operation, None).await
         }
     }
 
@@ -403,11 +432,20 @@ impl TableOfContent {
     async fn perform_collection_meta_op(
         &self,
         operation: CollectionMetaOperations,
+        shard_distribution_proposal: Option<ShardDistributionProposal>,
     ) -> Result<bool, StorageError> {
         match operation {
             CollectionMetaOperations::CreateCollection(operation) => {
-                self.create_collection(&operation.collection_name, operation.create_collection)
-                    .await
+                let local_shard_ids = match shard_distribution_proposal {
+                    None => Vec::new(),
+                    Some(distribution) => distribution.shards_for_peer(self.this_peer_id),
+                };
+                self.create_collection(
+                    &operation.collection_name,
+                    operation.create_collection,
+                    local_shard_ids,
+                )
+                .await
             }
             CollectionMetaOperations::UpdateCollection(operation) => {
                 self.update_collection(&operation.collection_name, operation.update_collection)
@@ -643,9 +681,9 @@ impl TableOfContent {
         let operation: ConsensusOperations = entry.try_into()?;
         let on_apply = self.on_consensus_op_apply.lock()?.remove(&operation);
         let result = match operation {
-            ConsensusOperations::CollectionMeta(operation) => self
+            ConsensusOperations::CollectionMeta(operation, shard_distribution) => self
                 .collection_management_runtime
-                .block_on(self.perform_collection_meta_op(*operation)),
+                .block_on(self.perform_collection_meta_op(*operation, shard_distribution)),
             ConsensusOperations::AddPeer(peer_id, uri) => self
                 .add_peer(
                     peer_id,
@@ -820,8 +858,11 @@ impl TableOfContent {
                         let collection = Collection::new(
                             id.to_string(),
                             Path::new(&collection_path),
-                            // TODO: Apply shard_to_peer when non local peers are allowed
                             &state.config,
+                            vec![], // TODO what here??
+                            self.this_peer_id,
+                            self.raft_state.lock().unwrap().peer_address_by_id.clone(), // TODO
+                            self.transport_channel_pool.clone(),
                         )
                         .await?;
                         let mut write_collections = self.collections.write().await;

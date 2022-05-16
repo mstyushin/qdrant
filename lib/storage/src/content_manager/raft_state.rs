@@ -58,7 +58,7 @@ impl UnappliedEntries {
 pub struct Persistent {
     state: RaftStateWrapper,
     unapplied_entries: UnappliedEntries,
-    peer_address_by_id: Arc<std::sync::RwLock<PeerAddressByIdWrapper>>, // TODO pass to remote shard
+    pub peer_address_by_id: Arc<std::sync::RwLock<PeerAddressByIdWrapper>>,
     this_peer_id: u64,
     #[serde(skip)]
     path: PathBuf,
