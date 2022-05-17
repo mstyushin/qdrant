@@ -14,6 +14,7 @@ use crate::operations::OperationToShard;
 use crate::shard::remote_shard::RemoteShard;
 use crate::shard::ShardOperation;
 use api::grpc::transport_channel_pool::TransportChannelPool;
+use api::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
 use collection_manager::collection_managers::CollectionSearcher;
 use config::CollectionConfig;
 use futures::future::{join_all, try_join_all};
@@ -41,7 +42,6 @@ use segment::{
 use serde::{Deserialize, Serialize};
 use shard::{local_shard::LocalShard, Shard, ShardId};
 use tokio::runtime::Handle;
-use tonic::transport::Uri;
 
 pub mod collection_manager;
 mod common;
@@ -106,6 +106,20 @@ impl State {
     }
 }
 
+pub enum CollectionShardDistribution {
+    AllLocal,
+    Local(Vec<ShardId>),
+}
+
+impl CollectionShardDistribution {
+    fn shard_is_local(&self, shard: &ShardId) -> bool {
+        match self {
+            CollectionShardDistribution::AllLocal => true,
+            CollectionShardDistribution::Local(local) => local.contains(shard),
+        }
+    }
+}
+
 /// Collection's data is split into several shards.
 pub struct Collection {
     shards: HashMap<ShardId, Shard>,
@@ -120,16 +134,16 @@ impl Collection {
         id: CollectionId,
         path: &Path,
         config: &CollectionConfig,
-        local_shard_ids: Vec<ShardId>,
+        shard_distribution: CollectionShardDistribution,
         peer_id: PeerId,
-        ip_to_address: Arc<std::sync::RwLock<HashMap<u64, Uri>>>,
+        ip_to_address: Arc<std::sync::RwLock<PeerAddressByIdWrapper>>,
         channel_pool: Arc<TransportChannelPool>,
     ) -> Result<Self, CollectionError> {
         config.save(path)?;
         let mut ring = HashRing::new();
         let mut shards: HashMap<ShardId, Shard> = HashMap::new();
         for shard_id in 0..config.params.shard_number.get() {
-            if local_shard_ids.contains(&shard_id) {
+            if shard_distribution.shard_is_local(&shard_id) {
                 let shard_path = shard_path(path, shard_id);
                 let shard = tokio::fs::create_dir_all(&shard_path).await.map_err(|err| {
                     CollectionError::ServiceError {

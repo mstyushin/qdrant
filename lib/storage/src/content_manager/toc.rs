@@ -17,7 +17,7 @@ use collection::operations::types::{
     UpdateResult,
 };
 use collection::operations::CollectionUpdateOperations;
-use collection::Collection;
+use collection::{Collection, CollectionShardDistribution};
 use segment::types::ScoredPoint;
 
 use crate::content_manager::shard_distribution::ShardDistributionProposal;
@@ -31,14 +31,12 @@ use crate::content_manager::{
     collections_ops::{Checker, Collections},
     errors::StorageError,
 };
-use crate::types::StorageConfig;
-use crate::{
-    content_manager::{
-        consensus_ops::ConsensusOperations, raft_state::Persistent as PersistentRaftState,
-    },
-    types::PeerAddressById,
+use crate::content_manager::{
+    consensus_ops::ConsensusOperations, raft_state::Persistent as PersistentRaftState,
 };
+use crate::types::StorageConfig;
 use api::grpc::transport_channel_pool::TransportChannelPool;
+use api::peer_address_by_id_wrapper::{PeerAddressById, PeerAddressByIdWrapper};
 use collection::collection_manager::collection_managers::CollectionSearcher;
 use collection::collection_manager::simple_collection_searcher::SimpleCollectionSearcher;
 use collection::shard::ShardId;
@@ -206,11 +204,20 @@ impl TableOfContent {
         Ok(resolved_name)
     }
 
+    fn share_ip_to_address(
+        &self,
+    ) -> Result<Arc<std::sync::RwLock<PeerAddressByIdWrapper>>, StorageError> {
+        // Done within a non-async function as the std::sync::Mutex is not Send
+        let raft_state_guard = self.raft_state.lock()?;
+        let ip_to_address = raft_state_guard.peer_address_by_id.clone();
+        Ok(ip_to_address)
+    }
+
     async fn create_collection(
         &self,
         collection_name: &str,
         operation: CreateCollection,
-        local_shard_ids: Vec<ShardId>,
+        collection_shard_distribution: CollectionShardDistribution,
     ) -> Result<bool, StorageError> {
         let CreateCollection {
             vector_size,
@@ -257,13 +264,14 @@ impl TableOfContent {
             optimizer_config: optimizers_config,
             hnsw_config,
         };
+        let ip_to_address = self.share_ip_to_address()?;
         let collection = Collection::new(
             collection_name.to_string(),
             Path::new(&collection_path),
             &collection_config,
-            local_shard_ids,
+            collection_shard_distribution,
             self.this_peer_id,
-            self.raft_state.lock().unwrap().peer_address_by_id, //TODO
+            ip_to_address,
             self.transport_channel_pool.clone(),
         )
         .await?;
@@ -436,14 +444,17 @@ impl TableOfContent {
     ) -> Result<bool, StorageError> {
         match operation {
             CollectionMetaOperations::CreateCollection(operation) => {
-                let local_shard_ids = match shard_distribution_proposal {
-                    None => Vec::new(),
-                    Some(distribution) => distribution.shards_for_peer(self.this_peer_id),
+                let collection_shard_distribution = match shard_distribution_proposal {
+                    None => CollectionShardDistribution::AllLocal,
+                    Some(distribution) => {
+                        let local_shard_ids = distribution.shards_for_peer(self.this_peer_id);
+                        CollectionShardDistribution::Local(local_shard_ids)
+                    }
                 };
                 self.create_collection(
                     &operation.collection_name,
                     operation.create_collection,
-                    local_shard_ids,
+                    collection_shard_distribution,
                 )
                 .await
             }
@@ -656,7 +667,6 @@ impl TableOfContent {
 
     async fn state_snapshot(&self) -> raft::Result<consensus::SnapshotData> {
         use super::raft_state::PeerAddressByIdWrapper;
-
         let collections: HashMap<collection::CollectionId, collection::State> = self
             .collections
             .read()
@@ -855,13 +865,14 @@ impl TableOfContent {
                     // Create collection if not present locally
                     None => {
                         let collection_path = self.create_collection_path(id).await?;
+                        let ip_to_address = self.share_ip_to_address()?;
                         let collection = Collection::new(
                             id.to_string(),
                             Path::new(&collection_path),
                             &state.config,
-                            vec![], // TODO what here??
+                            CollectionShardDistribution::Local(vec![]), // TODO what here??
                             self.this_peer_id,
-                            self.raft_state.lock().unwrap().peer_address_by_id.clone(), // TODO
+                            ip_to_address,
                             self.transport_channel_pool.clone(),
                         )
                         .await?;
@@ -940,11 +951,12 @@ impl Drop for TableOfContent {
 mod consensus {
     use std::{collections::HashMap, ops::Deref, sync::Arc};
 
+    use api::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
     use collection::CollectionId;
     use raft::{eraftpb::Entry as RaftEntry, storage::Storage as RaftStorage, RaftState};
     use serde::{Deserialize, Serialize};
 
-    use crate::content_manager::{alias_mapping::AliasMapping, raft_state::PeerAddressByIdWrapper};
+    use crate::content_manager::alias_mapping::AliasMapping;
 
     use super::TableOfContent;
 

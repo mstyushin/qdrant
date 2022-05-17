@@ -18,9 +18,9 @@ use api::grpc::qdrant::{
     ScrollPointsInternal, SearchPoints, SearchPointsInternal,
 };
 use api::grpc::transport_channel_pool::TransportChannelPool;
+use api::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
 use async_trait::async_trait;
 use segment::types::{ExtendedPointId, Filter, ScoredPoint, WithPayload, WithPayloadInterface};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::Handle;
 use tonic::transport::Channel;
@@ -36,7 +36,7 @@ pub struct RemoteShard {
     pub(crate) id: ShardId,
     pub(crate) collection_id: CollectionId,
     pub peer_id: PeerId,
-    ip_to_address: Arc<std::sync::RwLock<HashMap<u64, Uri>>>,
+    ip_to_address: Arc<std::sync::RwLock<PeerAddressByIdWrapper>>,
     channel_pool: Arc<TransportChannelPool>,
 }
 
@@ -45,7 +45,7 @@ impl RemoteShard {
         id: ShardId,
         collection_id: CollectionId,
         peer_id: PeerId,
-        ip_to_address: Arc<std::sync::RwLock<HashMap<u64, Uri>>>,
+        ip_to_address: Arc<std::sync::RwLock<PeerAddressByIdWrapper>>,
         channel_pool: Arc<TransportChannelPool>,
     ) -> Self {
         Self {
@@ -59,7 +59,7 @@ impl RemoteShard {
 
     fn current_address(&self) -> CollectionResult<Uri> {
         let guard_peer_address = self.ip_to_address.read()?;
-        let peer_address = guard_peer_address.get(&self.peer_id).cloned();
+        let peer_address = guard_peer_address.0.get(&self.peer_id).cloned();
         match peer_address {
             None => Err(CollectionError::service_error(format!(
                 "no address found for peer {}",

@@ -1,14 +1,13 @@
 use std::sync::Arc;
 use std::{
-    collections::HashMap,
     fs::File,
     io::BufWriter,
     path::{Path, PathBuf},
 };
 
+use api::peer_address_by_id_wrapper::{PeerAddressById, PeerAddressByIdWrapper};
 use atomicwrites::{AtomicFile, OverwriteBehavior::AllowOverwrite};
 use collection::PeerId;
-use itertools::Itertools;
 use prost::Message;
 use raft::{
     eraftpb::{ConfState, HardState},
@@ -16,8 +15,6 @@ use raft::{
 };
 use serde::{Deserialize, Serialize};
 use tonic::transport::Uri;
-
-use crate::types::PeerAddressById;
 
 use super::errors::StorageError;
 
@@ -190,35 +187,6 @@ impl Persistent {
             let writer = BufWriter::new(file);
             serde_cbor::to_writer(writer, self)
         })?)
-    }
-}
-
-/// Serializable [`PeerAddressById`]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(try_from = "HashMap<u64, String>")]
-#[serde(into = "HashMap<u64, String>")]
-pub struct PeerAddressByIdWrapper(pub PeerAddressById);
-
-impl From<PeerAddressByIdWrapper> for HashMap<u64, String> {
-    fn from(wrapper: PeerAddressByIdWrapper) -> Self {
-        wrapper
-            .0
-            .into_iter()
-            .map(|(id, address)| (id, format!("{address}")))
-            .collect()
-    }
-}
-
-impl TryFrom<HashMap<u64, String>> for PeerAddressByIdWrapper {
-    type Error = http::uri::InvalidUri;
-
-    fn try_from(value: HashMap<u64, String>) -> Result<Self, Self::Error> {
-        Ok(PeerAddressByIdWrapper(
-            value
-                .into_iter()
-                .map(|(id, address)| address.parse().map(|address| (id, address)))
-                .try_collect()?,
-        ))
     }
 }
 

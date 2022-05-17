@@ -1,9 +1,10 @@
 use collection::config::{CollectionConfig, CollectionParams, WalConfig};
 use collection::optimizers_builder::OptimizersConfig;
-use collection::Collection;
+use collection::{Collection, CollectionShardDistribution};
 use segment::types::Distance;
 use std::num::NonZeroU32;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Test collections for this upper bound of shards.
 /// Testing with more shards is problematic due to `number of open files problem`
@@ -36,15 +37,22 @@ pub async fn simple_collection_fixture(collection_path: &Path, shard_number: u32
         shard_number: NonZeroU32::new(shard_number).expect("Shard number can not be zero"),
     };
 
+    let collection_config = CollectionConfig {
+        params: collection_params,
+        optimizer_config: TEST_OPTIMIZERS_CONFIG.clone(),
+        wal_config,
+        hnsw_config: Default::default(),
+    };
+
+    // Default to a collection with all the shards local
     Collection::new(
         "test".to_string(),
         collection_path,
-        &CollectionConfig {
-            params: collection_params,
-            optimizer_config: TEST_OPTIMIZERS_CONFIG.clone(),
-            wal_config,
-            hnsw_config: Default::default(),
-        },
+        &collection_config,
+        CollectionShardDistribution::AllLocal,
+        0,
+        Arc::new(Default::default()),
+        Arc::new(Default::default()),
     )
     .await
     .unwrap()

@@ -8,7 +8,7 @@ pub struct ShardDistributionProposal {
 }
 
 impl ShardDistributionProposal {
-    pub fn build(shard_number: u32, known_peers: &Vec<PeerId>) -> Self {
+    pub fn build(shard_number: u32, known_peers: &[PeerId]) -> Self {
         // TODO better distribution scheme that looks at the least occupied peers first
         let mut distribution: Vec<(ShardId, PeerId)> = Vec::with_capacity(shard_number as usize);
         let known_peer_len = known_peers.len();
