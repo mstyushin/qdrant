@@ -106,18 +106,13 @@ impl State {
     }
 }
 
+#[derive(Debug)]
 pub enum CollectionShardDistribution {
     AllLocal,
-    Local(Vec<ShardId>),
-}
-
-impl CollectionShardDistribution {
-    fn shard_is_local(&self, shard: &ShardId) -> bool {
-        match self {
-            CollectionShardDistribution::AllLocal => true,
-            CollectionShardDistribution::Local(local) => local.contains(shard),
-        }
-    }
+    Distribution {
+        local: Vec<ShardId>,
+        remote: Vec<(ShardId, PeerId)>,
+    },
 }
 
 /// Collection's data is split into several shards.
@@ -135,51 +130,60 @@ impl Collection {
         path: &Path,
         config: &CollectionConfig,
         shard_distribution: CollectionShardDistribution,
-        peer_id: PeerId,
         ip_to_address: Arc<std::sync::RwLock<PeerAddressByIdWrapper>>,
         channel_pool: Arc<TransportChannelPool>,
     ) -> Result<Self, CollectionError> {
         config.save(path)?;
         let mut ring = HashRing::new();
         let mut shards: HashMap<ShardId, Shard> = HashMap::new();
-        for shard_id in 0..config.params.shard_number.get() {
-            if shard_distribution.shard_is_local(&shard_id) {
-                let shard_path = shard_path(path, shard_id);
-                let shard = tokio::fs::create_dir_all(&shard_path).await.map_err(|err| {
-                    CollectionError::ServiceError {
-                        error: format!("Can't create shard {shard_id} directory. Error: {}", err),
-                    }
-                });
+        // unpack shard distribution
+        let (local_shards, remote_shards) = match shard_distribution {
+            CollectionShardDistribution::AllLocal => (
+                (0..config.params.shard_number.get()).collect::<Vec<ShardId>>(),
+                Vec::new(),
+            ),
+            CollectionShardDistribution::Distribution { local, remote } => (local, remote),
+        };
+        for shard_id in local_shards {
+            let shard_path = shard_path(path, shard_id);
+            let shard = tokio::fs::create_dir_all(&shard_path).await.map_err(|err| {
+                CollectionError::ServiceError {
+                    error: format!("Can't create shard {shard_id} directory. Error: {}", err),
+                }
+            });
 
-                let shard = match shard {
-                    Ok(_) => LocalShard::build(shard_id, id.clone(), &shard_path, config).await,
-                    Err(err) => Err(err),
-                };
+            let shard = match shard {
+                Ok(_) => LocalShard::build(shard_id, id.clone(), &shard_path, config).await,
+                Err(err) => Err(err),
+            };
 
-                let shard = match shard {
-                    Ok(shard) => shard,
-                    Err(err) => {
-                        let futures: FuturesUnordered<_> = shards
-                            .iter_mut()
-                            .map(|(_, shard)| shard.before_drop())
-                            .collect();
-                        futures.collect::<Vec<()>>().await;
-                        return Err(err);
-                    }
-                };
-                shards.insert(shard_id, Shard::Local(shard));
-            } else {
-                let shard = RemoteShard::build(
-                    shard_id,
-                    id.clone(),
-                    peer_id,
-                    ip_to_address.clone(),
-                    channel_pool.clone(),
-                );
-                shards.insert(shard_id, Shard::Remote(shard));
-            }
+            let shard = match shard {
+                Ok(shard) => shard,
+                Err(err) => {
+                    let futures: FuturesUnordered<_> = shards
+                        .iter_mut()
+                        .map(|(_, shard)| shard.before_drop())
+                        .collect();
+                    futures.collect::<Vec<()>>().await;
+                    return Err(err);
+                }
+            };
+            shards.insert(shard_id, Shard::Local(shard));
             ring.add(shard_id);
         }
+
+        for (shard_id, peer_id) in remote_shards {
+            let shard = RemoteShard::build(
+                shard_id,
+                id.clone(),
+                peer_id,
+                ip_to_address.clone(),
+                channel_pool.clone(),
+            );
+            shards.insert(shard_id, Shard::Remote(shard));
+            ring.add(shard_id);
+        }
+
         Ok(Self {
             shards,
             ring,

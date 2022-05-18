@@ -20,7 +20,7 @@ impl ShardDistributionProposal {
         Self { distribution }
     }
 
-    pub fn shards_for_peer(&self, peer_id: PeerId) -> Vec<ShardId> {
+    pub fn local_shards_for_peer(&self, peer_id: PeerId) -> Vec<ShardId> {
         self.distribution
             .iter()
             .filter_map(
@@ -32,6 +32,14 @@ impl ShardDistributionProposal {
                     }
                 },
             )
+            .collect()
+    }
+
+    pub fn remote_shards_for_peer(&self, peer_id: PeerId) -> Vec<(ShardId, PeerId)> {
+        self.distribution
+            .iter()
+            .filter(|(_shard, peer)| peer != &peer_id)
+            .copied()
             .collect()
     }
 }

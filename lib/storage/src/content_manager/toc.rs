@@ -270,7 +270,6 @@ impl TableOfContent {
             Path::new(&collection_path),
             &collection_config,
             collection_shard_distribution,
-            self.this_peer_id,
             ip_to_address,
             self.transport_channel_pool.clone(),
         )
@@ -376,7 +375,6 @@ impl TableOfContent {
             let shard_distribution = match &operation {
                 CollectionMetaOperations::CreateCollection(op) => {
                     let shard_number = op.create_collection.shard_number;
-                    // \o/
                     let known_peers: Vec<_> = self
                         .raft_state
                         .lock()?
@@ -446,8 +444,9 @@ impl TableOfContent {
                 let collection_shard_distribution = match shard_distribution_proposal {
                     None => CollectionShardDistribution::AllLocal,
                     Some(distribution) => {
-                        let local_shard_ids = distribution.shards_for_peer(self.this_peer_id);
-                        CollectionShardDistribution::Local(local_shard_ids)
+                        let local = distribution.local_shards_for_peer(self.this_peer_id);
+                        let remote = distribution.remote_shards_for_peer(self.this_peer_id);
+                        CollectionShardDistribution::Distribution { local, remote }
                     }
                 };
                 self.create_collection(
@@ -868,8 +867,7 @@ impl TableOfContent {
                             id.to_string(),
                             Path::new(&collection_path),
                             &state.config,
-                            CollectionShardDistribution::Local(vec![]), // TODO what here??
-                            self.this_peer_id,
+                            CollectionShardDistribution::AllLocal, // TODO what here??
                             ip_to_address,
                             self.transport_channel_pool.clone(),
                         )

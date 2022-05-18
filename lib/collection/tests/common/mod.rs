@@ -50,7 +50,6 @@ pub async fn simple_collection_fixture(collection_path: &Path, shard_number: u32
         collection_path,
         &collection_config,
         CollectionShardDistribution::AllLocal,
-        0,
         Arc::new(Default::default()),
         Arc::new(Default::default()),
     )
