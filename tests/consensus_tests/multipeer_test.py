@@ -86,11 +86,12 @@ def test_multipeer_deployment(tmp_path: pathlib.Path):
         assert_http_ok(r)
         assert len(r.json()["result"]["collections"]) == 0
 
-    # Create collection
+    # Create collection in first peer
     r = requests.put(
         f"{peer_api_uris[0]}/collections/test_collection", json={
             "vector_size": 4,
-            "distance": "Dot"
+            "distance": "Dot",
+            "shard_number": 2,
         })
     assert_http_ok(r)
 
