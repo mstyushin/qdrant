@@ -379,17 +379,16 @@ impl TableOfContent {
                     // \o/
                     let known_peers: Vec<_> = self
                         .raft_state
-                        .lock()
-                        .unwrap()
+                        .lock()?
                         .peer_address_by_id
-                        .read()
-                        .unwrap()
+                        .read()?
                         .0
                         .keys()
                         .cloned()
                         .collect();
                     let shard_distribution =
                         ShardDistributionProposal::build(shard_number, &known_peers);
+                    log::info!("Proposing distribution for {} shards for collection '{}' among {} peers {:?}", shard_number, op.collection_name, known_peers.len(), shard_distribution.distribution);
                     Some(shard_distribution)
                 }
                 _ => None,
@@ -666,7 +665,6 @@ impl TableOfContent {
     }
 
     async fn state_snapshot(&self) -> raft::Result<consensus::SnapshotData> {
-        use super::raft_state::PeerAddressByIdWrapper;
         let collections: HashMap<collection::CollectionId, collection::State> = self
             .collections
             .read()

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct ShardDistributionProposal {
-    distribution: Vec<(ShardId, PeerId)>,
+    pub distribution: Vec<(ShardId, PeerId)>,
 }
 
 impl ShardDistributionProposal {
