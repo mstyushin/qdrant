@@ -6,6 +6,7 @@ mod settings;
 mod tonic;
 
 use consensus::Consensus;
+use log::LevelFilter;
 use slog::Drain;
 use std::io::Error;
 use std::sync::Arc;
@@ -45,8 +46,19 @@ struct Args {
 
 fn main() -> std::io::Result<()> {
     let settings = Settings::new().expect("Can't read config.");
-    std::env::set_var("RUST_LOG", &settings.log_level);
-    env_logger::init();
+    env_logger::Builder::new()
+        // Set global level filter
+        .filter(
+            None,
+            settings
+                .log_level
+                .parse()
+                .unwrap_or_else(|_| panic!("Failed to parse log level: {}", settings.log_level)),
+        )
+        // h2 is very verbose and we have many network operation,
+        // so it is limited to only errors
+        .filter(Some("h2"), LevelFilter::Error)
+        .init();
 
     // Create and own search runtime out of the scope of async context to ensure correct
     // destruction of it
