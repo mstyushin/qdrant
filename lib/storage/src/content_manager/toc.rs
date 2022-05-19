@@ -36,9 +36,9 @@ use crate::content_manager::{
 };
 use crate::types::StorageConfig;
 use api::grpc::transport_channel_pool::TransportChannelPool;
-use api::peer_address_by_id_wrapper::{PeerAddressById, PeerAddressByIdWrapper};
 use collection::collection_manager::collection_managers::CollectionSearcher;
 use collection::collection_manager::simple_collection_searcher::SimpleCollectionSearcher;
+use collection::shard::peer_address_by_id_wrapper::{PeerAddressById, PeerAddressByIdWrapper};
 use collection::shard::ShardId;
 use collection::PeerId;
 pub use consensus::TableOfContentRef;
@@ -947,7 +947,7 @@ impl Drop for TableOfContent {
 mod consensus {
     use std::{collections::HashMap, ops::Deref, sync::Arc};
 
-    use api::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
+    use collection::shard::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
     use collection::CollectionId;
     use raft::{eraftpb::Entry as RaftEntry, storage::Storage as RaftStorage, RaftState};
     use serde::{Deserialize, Serialize};

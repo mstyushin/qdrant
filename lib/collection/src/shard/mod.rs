@@ -1,5 +1,6 @@
 mod conversions;
 pub mod local_shard;
+pub mod peer_address_by_id_wrapper;
 pub mod remote_shard;
 
 use crate::shard::remote_shard::RemoteShard;

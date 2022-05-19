@@ -5,8 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use api::peer_address_by_id_wrapper::{PeerAddressById, PeerAddressByIdWrapper};
 use atomicwrites::{AtomicFile, OverwriteBehavior::AllowOverwrite};
+use collection::shard::peer_address_by_id_wrapper::{PeerAddressById, PeerAddressByIdWrapper};
 use collection::PeerId;
 use prost::Message;
 use raft::{

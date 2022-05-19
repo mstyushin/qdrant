@@ -11,10 +11,10 @@ use std::{
 
 use crate::operations::types::PointRequest;
 use crate::operations::OperationToShard;
+use crate::shard::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
 use crate::shard::remote_shard::RemoteShard;
 use crate::shard::ShardOperation;
 use api::grpc::transport_channel_pool::TransportChannelPool;
-use api::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
 use collection_manager::collection_managers::CollectionSearcher;
 use config::CollectionConfig;
 use futures::future::{join_all, try_join_all};

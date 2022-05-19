@@ -9,7 +9,8 @@ use crate::shard::conversions::{
 use crate::shard::{PeerId, ShardId, ShardOperation};
 use crate::{
     CollectionError, CollectionId, CollectionInfo, CollectionResult, CollectionSearcher,
-    CollectionUpdateOperations, PointRequest, Record, SearchRequest, UpdateResult,
+    CollectionUpdateOperations, PeerAddressByIdWrapper, PointRequest, Record, SearchRequest,
+    UpdateResult,
 };
 use api::grpc::qdrant::{
     collections_internal_client::CollectionsInternalClient,
@@ -18,7 +19,6 @@ use api::grpc::qdrant::{
     ScrollPointsInternal, SearchPoints, SearchPointsInternal,
 };
 use api::grpc::transport_channel_pool::TransportChannelPool;
-use api::peer_address_by_id_wrapper::PeerAddressByIdWrapper;
 use async_trait::async_trait;
 use segment::types::{ExtendedPointId, Filter, ScoredPoint, WithPayload, WithPayloadInterface};
 use std::sync::Arc;
